@@ -1,0 +1,212 @@
+---
+title: "Permutation test using Monte Carlo approach"
+author: "Medeline Amador y Luis Rojo-González"
+date: "`r Sys.Date()`"
+output:
+  # - \usepackage{natbib}
+  pdf_document:
+    fig_caption: yes
+    number_sections: yes
+  header-includes:
+  - \usepackage{float}
+  - \usepackage{amsmath}
+  - \usepackage[spanish]{babel}
+  - \usepackage[utf8]{inputenc}
+  html_document:
+    df_print: paged
+# csl: apa.csl
+# bibliography: Report.bib
+---
+
+```{r echo=FALSE}
+#Working directory
+setwd("~/Desktop/UPC/Simulación/Project 2")
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+#Librarias
+library(readr)
+library(moments)
+library(vcd)
+library(MASS)
+library(knitr)
+library(xtable)
+library(dgof)
+library(ggplot2)
+library(dplyr)
+options(xtable.comment = FALSE)
+```
+
+\textbf{Situación (este caso de estudio es de McClave et al. (1997)).} Las pruebas del producto pueden automatizarse por completo o pueden realizarse con inspectores humanos o inspectores humanos con la ayuda de dispositivos mecánicos. Aunque la inspección humana es con frecuencia la alternativa más económica, puede conducir a graves problemas de error de inspección.
+
+Para evaluar el desempeño de los inspectores en una nueva empresa, un gerente de calidad hizo que una muestra de 12 inspectores novatos evaluaran 200 productos terminados. Los mismos 200 artículos fueron evaluados por 12 inspectores experimentados. 
+
+El gerente cree que la variabilidad de los errores de inspección fue menor para los inspectores experimentados que para los inspectores novatos.
+
+Los siguientes datos muestran el número de errores de inspección realizados por cada inspector.
+
+```{r}
+#Datos
+a = c(30,35,26,40,36,20,45,31,33,29,21,48) #novatos
+b = c(31,15,25,19,28,17,19,18,24,10,20,21) #senior
+datos = data.frame(experiencia = rep(c("Novato","Senior"), each = 12), fallo=c(a,b))
+```
+
+\textbf{Objetivo.} Comprobar si hay variabilidad en el proceso de inspección de los inspectores novatos contra los inspectores que sí tienen experiencia (senior). Para el análisis se consideran las siguientes hipótesis:
+
+$H_0 : \frac{\sigma^{2}_{Senior}}{\sigma^{2}_{Novatos}} = 1$, $H_1 : \frac{\sigma^{2}_{Senior}}{\sigma^{2}_{Novatos}} < 1$
+
+donde la hipótesis nula es la igualdad de las varianzas entre ambos tipos de inspectores, y la hipótesis alternativa marca la relación en donde la variabilidad de los inspectores senior es menor a la de los inspectores novatos.
+
+\textbf{Análisis exploratorio.} Considerando que el objetivo es evaluar si existe variabilidad significativa entre ambos inspectores, el primer paso consta de observar los estadísticos media, mediana y la misma varianza, correspondientes a cada muestra.
+
+```{r}
+## EDA
+datos %>% group_by(experiencia) %>%  
+          summarise(media = mean(fallo), mediana = median(fallo),
+                    var = var(fallo))
+```
+
+De esta forma es importante notar que en términos de media y mediana, ambas distribuciones parecen ser simétricas; mientras que la varianza de los inspectores novatos representa la mitad de la obtenida para los inspectores senior.
+
+```{r, fig.cap = "\\label{fig:boxplot}Gráfico de caja según experiencia del inspector.", fig.width = 10, fig.asp = .4}
+## Boxplot
+ggplot(data = datos, aes(x = experiencia, y = fallo, colour = experiencia)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = 0.2) +
+    scale_color_manual(values = c("gray50", "orangered2")) +
+    theme_bw() +
+    theme(legend.position = "none")
+```
+
+Tal como Figura \ref{fig:boxplot} muestra es importante notar que, si bien la varianza obtenida difiera para cada muestra, gráficamente esta variabilidad no es tan notoria, pues ambos gráficos se asemejarían mucho trasladando los puntos.
+
+```{r, fig.cap = "\\label{fig:density}Gráfico de caja según experiencia del inspector.", fig.width = 10, fig.asp = .4}
+## Density plot
+ggplot(data = datos, aes(x = fallo, fill = experiencia)) +
+  geom_density(alpha = 0.5) +
+  scale_fill_manual(values = c("gray50", "orangered2")) +
+  geom_vline(xintercept = mean(datos%>%filter(experiencia=="Novato")%>%pull(fallo)),
+             color = "gray50", linetype = "dashed", size = 1) +
+  geom_vline(xintercept = mean(datos%>%filter(experiencia=="Senior")%>%pull(fallo)),
+             color = "orangered2", linetype = "dashed", size = 1) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+```
+
+En Figura \ref{fig:density} se puede apreciar que ambas distribuciones son simétricas, la distribución de fallos de los inspectores senior se encuentra más cercana a su media (línea vertical), mientras que la conclusión contraria puede obtenerse observando la distribución de los inspectores novatos.
+
+\textbf{Test de Permutaciones.}
+
+```{r eval=FALSE, include=FALSE}
+## Test de igualdad de varianzas
+var.test(datos[datos$experiencia == "Senior",2], datos[datos$experiencia == "Novato",2],
+         alternative = "less")
+```
+
+Para llevar a cabo el test de hipótesis propuesto, se realiza un test de permutaciones en donde, en primer lugar, se debe reconocer qué tipo de situación se está trabajando, es decir, si pertenece la misma cantidad de muestras a cada tipo de experiencia analizada. Por otro lado, se debe identificar la cantidad de permutaciones que se deberían hacer en caso de utilizar un test exacto, donde un número excesivo de estas permutaciones, e.g. mayor a 1,000,000, llevarían a un problema en el consumo de recursos computaciones sin ser eficiente.
+
+```{r}
+## Tamaños muestrales
+n <- tapply(datos[,"fallo"], datos[,"experiencia"], length) 
+n
+N <- sum(n)
+n1 <- n[1] #novato
+n2 <- n[2] #senior
+
+#Número total de Combinacions
+choose(N,n1)
+```
+
+En particular, el caso trabajado se trata de un caso balanceado, i.e. existe la misma cantidad de muestras tanto para los inspectores novatos como para los inspectores senior, siendo 12 muestras para cada uno de ellos. Por otro lado, el número de permutaciones que generaría esta cantidad de datos corresponde a 2,704,156 permutaciones lo cual es ineficiente desde el punto de vista computacional. De acuerdo a lo anterior es idóneo trabajar el test de permutaciones con una aproximación Monte Carlo.
+
+\textbf{Aproximación Monte Carlo.}
+
+En primer lugar, un estadístico que refleje lo que se busca comprobar se debe imponer. Para este objetivo el estadístico $T$ corresponde al mostrado en las hipótesis formuladas anteriormente.
+
+$T = \frac{\sigma^{2}_{Senior}}{\sigma^{2}_{Novatos}}$
+
+```{r}
+#Define estadístico
+diff.var <- function(indexs, data) {
+  var(datos[-indexs,2])/var(datos[indexs,2]) # senior/novato
+}
+```
+
+```{r}
+#Valor estadístico muestral observado
+(dif.var.real <- diff.var(1:n1, datos))
+```
+
+El estadístico muestral corresponde a 0.4417, el cual será utilizado como umbral para la comparación de las distintas permutaciones a realizar.
+
+```{r echo=FALSE, eval=FALSE, include=FALSE}
+#### Atención que esto está solo para ver cuanto demora y como se comporta, se ejecutó solo una vez, es con fines de aprendizaje #### solamente. De hecho, no aparece en la salida del pdf por eso tiene la opción echo=FALSE y demases.
+
+#Test de permutaciones
+cindexs <- as.data.frame(combn(1:N, n1))
+dvarPerm <- vapply(cindexs, diff.var, data = datos, FUN.VALUE = 0.0)
+
+#P-valor contraste unilateral
+sum(dvarPerm <= dif.var.real)/length(dvarPerm)
+```
+
+La aproximación Monte Carlo se realiza con 9999 permutaciones en las cuales se irá analizando el p-valor obtenido de forma gráfica 
+y, por otro lado, se aplica la corrección al cálculo del p-valor para evitar un p-valor de 0.
+
+\textit{Paso 1.} El número de permutaciones aleatorias a generar corresponde a 9999 permutaciones.
+
+```{r}
+# Test de Permutaciones aproximación Monte Carlo
+nperm = 9999
+```
+
+\textit{Paso 2.} Se genera 'dvarPerm', lo cual representa los valores de las permutaciones aleatorias obtenidas, en donde 'diff.var' corresponde a la función señalada anteriormente como el ratio entre ambas varianzas.
+
+```{r}
+set.seed(1324)
+dvarPerm = replicate(nperm, diff.var(sample(1:N, size = n1), datos))
+```
+
+\textit{Paso 3.} Un resumen descriptivo de 'dvarPerm' es realizado y un el cálculo de la aproximación del p-valor es obtenido a lo largo de las permutaciones realizadas, en donde el p-valor en la aproximación Montecarlo corresponde a 0.0954.
+
+```{r}
+# dvarPerm[1:10]
+summary(dvarPerm)
+sd(dvarPerm)
+var(dvarPerm)
+
+p.value.mc = vector()
+for (i in 1:nperm) {
+  p.value.mc[i] = (sum(dvarPerm[1:i] <= dif.var.real)+1)/(i+1)
+}
+(p.value.mc[nperm])
+```
+
+\textit{Paso 4.} La evolución del p-valor a medida que aumenta el número de permutaciones es realizada para validar que este se estabilice a medida que aumenta la cantidad de permutaciones realizadas. De esta forma, tal y como muestra \ref{fig:pvalor}, es posible apreciar que el p-valor calculado a través de esta forma se estabiliza luego de considerar 2500 permutaciones (aproximadamente), lo cual arroja un resultado final para el p-valor de 0.0923.
+
+```{r, fig.cap = "\\label{fig:pvalor}Evolución p-valor mediante aproximación Monte Carlo.", fig.width = 10, fig.asp = .4}
+ggplot(data = data.frame(perm = c(1:nperm), p.value.mc = p.value.mc),
+      aes(x = perm, y = p.value.mc)) + geom_line() +
+  labs(title = "Evolución p-value en aproximación Monte Carlo",
+       x = "Permutaciones", y = "p-value") +
+  theme_bw()
+```
+
+\textit{Paso 5.} Se grafica el estadístico del test de permutaciones para observar su comportamiento.
+
+```{r fig.cap="\\label{fig:pvalor}Evolución p-valor mediante aproximación Monte Carlo.", fig.width=10, message=FALSE, warning=FALSE}
+ggplot(data = data.frame(permutaciones = dvarPerm),
+      aes(x = permutaciones)) +
+  geom_histogram(aes(y = ..density..), alpha = 0.4, colour = "white") + 
+  geom_line(aes(y = ..density..), stat = 'density', colour = "green") +
+  # geom_vline(xintercept = quantile(dvarPerm, probs = (1-p.value.mc[nperm]))) +
+  # geom_vline(xintercept = mean(dvarPerm), colour = "red") +
+  geom_vline(xintercept = dif.var.real, colour = "blue") +
+  labs(title = "Distribución estadístico test de permutaciones",
+       x = "Diferencia de varianzas") +
+  theme_bw()
+```
+
+\textbf{Conclusiones.} En base al test de permutaciones mediante el uso de aproximación Monte Carlo, se ha obtenido un p-valor igual a 0.0954, por lo que con un error tipo I establecido igual a 0.1 se puede concluir que existen diferencias significativas para las varianzas de ambos grupos de inspectores. Por otro lado, los resultados para el p-valor soportan el hecho de que la utilización de una aproximación Monte Carlo con un elevado número de permutaciones permite ser eficiente en el cálculo sin perder información para concluir. Por otro lado, en caso de haber utilizado una significancia igual a 0.05 la conclusión sería que no existen diferencias significativas en la variabilidad de ambos grupos, lo cual deja en evidencia el hecho de que se debe ser precavido e instaurar un nivel de significancia de acuerdo al nivel de riesgo que conlleva rechazar la hipótesis nula propuesta. No obstante, para este caso un nivel de significancia \textit{alto} puede ser aplicado.
+
